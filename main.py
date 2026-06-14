@@ -13,7 +13,6 @@ def home():
     return "Сервер активен, бот в сети!"
 
 def run_flask():
-    # Render автоматически передает порт в переменные окружения
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
@@ -28,12 +27,12 @@ bot = telebot.TeleBot(TOKEN)
 DOWNLOAD_DIR = "/tmp/processed_files"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# 3. Обработка команд и файлов
+# 3. Обработка команд и файлов (полностью нейтральный текст)
 @bot.message_handler(commands=['start', 'help'])
 def start_command(message):
     bot.send_message(
         message.chat.id, 
-        "Привет! Я облачный бот для сегментации баз данных Manato.\n\n"
+        "Привет! Я облачный бот для сегментации баз данных.\n\n"
         "📁 **Отправьте мне ваш файл Excel (.xlsx)**, и я автоматически разделю его по вкладкам на основе дней сегментации."
     )
 
@@ -57,13 +56,13 @@ def handle_excel_file(message):
         df = pd.read_excel(input_path)
 
         if 'segment_days' not in df.columns:
-            bot.send_message(message.chat.id, "❌ Ошибка: В таблице не найдена обязательная колонка `segment_days`.")
+            bot.send_message(message.chat.id, "❌ Ошибка: В таблице не найдена обязательная专 колонка `segment_days`.")
             os.remove(input_path)
             return
 
         df['segment_days'] = pd.to_numeric(df['segment_days'], errors='coerce')
 
-        # Фильтрация по вашим категориям
+        # Фильтрация по категориям дней
         cl_df = df[(df['segment_days'] >= 9) & (df['segment_days'] <= 30)]
         cl2_df = df[(df['segment_days'] >= 31) & (df['segment_days'] <= 90)]
         cl3_df = df[(df['segment_days'] >= 91) & (df['segment_days'] <= 365)]
@@ -87,7 +86,6 @@ def handle_excel_file(message):
         bot.send_message(message.chat.id, f"❌ Произошла ошибка при обработке файла: {e}")
 
 if __name__ == '__main__':
-    # Запуск веб-сервера параллельно с ботом
     threading.Thread(target=run_flask).start()
     print("🚀 Облачный бот успешно инициализирован и запущен в фоновом режиме...")
     bot.infinity_polling()
