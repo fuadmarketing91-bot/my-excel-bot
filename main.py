@@ -1,34 +1,40 @@
 import os
+import sys
 import threading
 from flask import Flask
 import telebot
 import pandas as pd
 
-# Инициализируем Flask для обмана проверок портов Render
+# 1. Микро-сервер для прохождения Port Binding проверок на Render
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Бот работает!"
+    return "Сервер активен, бот в сети!"
 
 def run_flask():
-    # Render автоматически передает номер порта в переменную окружения PORT
+    # Render автоматически передает порт в переменные окружения
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-# Инициализируем Telegram бота
-TOKEN = os.environ.get('TELEGRAM_TOKEN', '8914792143:AAEieFUabeaZr8hdP4aVkC1VInoWo5rmVqk')
-bot = telebot.TeleBot(TOKEN)
+# 2. ИЗОЛЯЦИЯ СЕКРЕТОВ: Токен запрашивается динамически из системы
+TOKEN = os.environ.get('TELEGRAM_TOKEN')
 
+if not TOKEN:
+    print("❌ КРИТИЧЕСКАЯ ОШИБКА: TELEGRAM_TOKEN отсутствует в настройках сервера!", file=sys.stderr)
+    sys.exit(1)
+
+bot = telebot.TeleBot(TOKEN)
 DOWNLOAD_DIR = "/tmp/processed_files"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-@bot.message_handler(commands=['start'])
+# 3. Обработка команд и файлов
+@bot.message_handler(commands=['start', 'help'])
 def start_command(message):
     bot.send_message(
         message.chat.id, 
-        "Привет! Я облачный бот-сегментатор базы.\n\n"
-        "📁 **Отправьте мне ваш файл Excel (.xlsx)**, и я автоматически разделю его на сегменты по вкладкам."
+        "Привет! Я облачный бот для сегментации баз данных Manato.\n\n"
+        "📁 **Отправьте мне ваш файл Excel (.xlsx)**, и я автоматически разделю его по вкладкам на основе дней сегментации."
     )
 
 @bot.message_handler(content_types=['document'])
@@ -36,10 +42,10 @@ def handle_excel_file(message):
     try:
         file_name = message.document.file_name
         if not file_name.endswith('.xlsx'):
-            bot.reply_to(message, "❌ Ошибка! Нужен файл Excel с расширением .xlsx")
+            bot.reply_to(message, "❌ Ошибка! Принимаются только файлы с расширением .xlsx")
             return
 
-        bot.reply_to(message, "⏳ Файл получен. Считаю дни и распределяю по сегментам...")
+        bot.reply_to(message, "⏳ Файл получен. Начинаю обработку и распределение по сегментам...")
 
         file_info = bot.get_file(message.document.file_id)
         downloaded_file = bot.download_file(file_info.file_path)
@@ -51,12 +57,13 @@ def handle_excel_file(message):
         df = pd.read_excel(input_path)
 
         if 'segment_days' not in df.columns:
-            bot.send_message(message.chat.id, f"❌ Ошибка: В таблице не найдена колонка `segment_days`.")
+            bot.send_message(message.chat.id, "❌ Ошибка: В таблице не найдена обязательная колонка `segment_days`.")
             os.remove(input_path)
             return
 
         df['segment_days'] = pd.to_numeric(df['segment_days'], errors='coerce')
 
+        # Фильтрация по вашим категориям
         cl_df = df[(df['segment_days'] >= 9) & (df['segment_days'] <= 30)]
         cl2_df = df[(df['segment_days'] >= 31) & (df['segment_days'] <= 90)]
         cl3_df = df[(df['segment_days'] >= 91) & (df['segment_days'] <= 365)]
@@ -71,16 +78,16 @@ def handle_excel_file(message):
             cl3_df.to_excel(writer, sheet_name='CL3 (91-365d)', index=False)
 
         with open(output_path, 'rb') as result_file:
-            bot.send_document(message.chat.id, result_file, caption="🎉 Сегментация завершена!")
+            bot.send_document(message.chat.id, result_file, caption="🎉 Сегментация базы успешно завершена!")
 
         os.remove(input_path)
         os.remove(output_path)
 
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Произошла ошибка: {e}")
+        bot.send_message(message.chat.id, f"❌ Произошла ошибка при обработке файла: {e}")
 
 if __name__ == '__main__':
-    # Запускаем веб-сервер в отдельном потоке, чтобы он не мешал боту
+    # Запуск веб-сервера параллельно с ботом
     threading.Thread(target=run_flask).start()
-    print("🤖 Облачный бот успешно запущен...")
+    print("🚀 Облачный бот успешно инициализирован и запущен в фоновом режиме...")
     bot.infinity_polling()
