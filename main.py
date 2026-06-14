@@ -5,39 +5,58 @@ from flask import Flask
 import telebot
 import pandas as pd
 
-# 1. Микро-сервер для прохождения Port Binding проверок на Render
+# 1. Веб-сервер для прохождения проверок портов Render
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Сервер активен, бот в сети!"
+    return "Сервер активен, бот в приватном режиме."
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-# 2. ИЗОЛЯЦИЯ СЕКРЕТОВ: Токен запрашивается динамически из системы
+# 2. ИЗОЛЯЦИЯ ДАННЫХ: Запрос токена и ID владельца из системы
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
+ALLOWED_ID_STR = os.environ.get('ALLOWED_TELEGRAM_ID')
 
-if not TOKEN:
-    print("❌ КРИТИЧЕСКАЯ ОШИБКА: TELEGRAM_TOKEN отсутствует в настройках сервера!", file=sys.stderr)
+if not TOKEN or not ALLOWED_ID_STR:
+    print("❌ КРИТИЧЕСКАЯ ОШИБКА: Проверьте настройки Environment на Render! Отсутствует TOKEN или ALLOWED_TELEGRAM_ID.", file=sys.stderr)
+    sys.exit(1)
+
+try:
+    ALLOWED_ID = int(ALLOWED_ID_STR)
+except ValueError:
+    print("❌ КРИТИЧЕСКАЯ ОШИБКА: ALLOWED_TELEGRAM_ID должен содержать только цифры!", file=sys.stderr)
     sys.exit(1)
 
 bot = telebot.TeleBot(TOKEN)
 DOWNLOAD_DIR = "/tmp/processed_files"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# 3. Обработка команд и файлов (полностью нейтральный текст)
+# 3. Функция проверки прав доступа (Фейсконтроль)
+def is_admin(message):
+    return message.from_user.id == ALLOWED_ID
+
+# 4. Обработка команд и файлов с жесткой проверкой ID
 @bot.message_handler(commands=['start', 'help'])
 def start_command(message):
+    if not is_admin(message):
+        print(f"🔒 Заблокирована попытка доступа от постороннего ID: {message.from_user.id}")
+        return  # Бот просто проигнорирует чужака и ничего ему не ответит
+
     bot.send_message(
         message.chat.id, 
-        "Привет! Я облачный бот для сегментации баз данных.\n\n"
-        "📁 **Отправьте мне ваш файл Excel (.xlsx)**, и я автоматически разделю его по вкладкам на основе дней сегментации."
+        "Привет! Я ваш приватный облачный бот для сегментации баз данных.\n\n"
+        "📁 **Отправьте мне файл Excel (.xlsx)**, и я разделю его по вкладкам."
     )
 
 @bot.message_handler(content_types=['document'])
 def handle_excel_file(message):
+    if not is_admin(message):
+        print(f"🔒 Заблокирована попытка отправки файла от постороннего ID: {message.from_user.id}")
+        return  # Файл постороннего человека даже не начнет скачиваться на сервер
+
     try:
         file_name = message.document.file_name
         if not file_name.endswith('.xlsx'):
@@ -56,7 +75,7 @@ def handle_excel_file(message):
         df = pd.read_excel(input_path)
 
         if 'segment_days' not in df.columns:
-            bot.send_message(message.chat.id, "❌ Ошибка: В таблице не найдена обязательная专 колонка `segment_days`.")
+            bot.send_message(message.chat.id, "❌ Ошибка: В таблице не найдена обязательная колонка `segment_days`.")
             os.remove(input_path)
             return
 
@@ -79,6 +98,7 @@ def handle_excel_file(message):
         with open(output_path, 'rb') as result_file:
             bot.send_document(message.chat.id, result_file, caption="🎉 Сегментация базы успешно завершена!")
 
+        # БЕЗОПАСНОСТЬ ДАННЫХ: Полное физическое удаление файлов с диска сервера сразу после отправки
         os.remove(input_path)
         os.remove(output_path)
 
@@ -87,5 +107,5 @@ def handle_excel_file(message):
 
 if __name__ == '__main__':
     threading.Thread(target=run_flask).start()
-    print("🚀 Облачный бот успешно инициализирован и запущен в фоновом режиме...")
+    print("🚀 Приватный облачный бот успешно запущен и защищен...")
     bot.infinity_polling()
